@@ -130,43 +130,47 @@ input[type="number"] {
   appearance: textfield !important;
 }
 
-/* Student portal responsive safety rails */
+/* Universal ERP portal responsive safety rails */
 .student-portal-shell,
-.student-portal-shell main {
+.admin-portal-shell,
+.erp-portal-shell,
+.student-portal-shell main,
+.admin-portal-shell main,
+.erp-portal-shell main {
   max-width: 100%;
   overflow-x: hidden;
 }
 
-.student-portal-shell :where(.flex, .grid) > * {
+.student-portal-shell :where(.flex, .grid) > *,
+.admin-portal-shell :where(.flex, .grid) > *,
+.erp-portal-shell :where(.flex, .grid) > * {
   min-width: 0;
 }
 
-.student-portal-shell h1,
-.student-portal-shell h2,
-.student-portal-shell h3,
-.student-portal-shell h4,
-.student-portal-shell p,
-.student-portal-shell span,
-.student-portal-shell a,
-.student-portal-shell button,
-.student-portal-shell td,
-.student-portal-shell th {
-  overflow-wrap: anywhere;
+.student-portal-shell h1, .student-portal-shell h2, .student-portal-shell h3,
+.admin-portal-shell h1, .admin-portal-shell h2, .admin-portal-shell h3,
+.erp-portal-shell h1, .erp-portal-shell h2, .erp-portal-shell h3 {
+  overflow-wrap: break-word;
 }
 
-.student-portal-shell input,
-.student-portal-shell select,
-.student-portal-shell textarea {
-  max-width: 100%;
-}
-
-.student-portal-shell .overflow-x-auto {
+.overflow-x-auto {
   max-width: 100%;
   -webkit-overflow-scrolling: touch;
 }
 
 @media (max-width: 640px) {
-  .student-portal-shell table {
+  table {
     font-size: 11px;
   }
 }
+
+/* Touch targets and tap enhancements for ultra-compact screens (320px - 375px) */
+@media (max-width: 375px) {
+  .compact-hide-badge {
+    display: none !important;
+  }
+  .compact-full-width {
+    width: 100% !important;
+  }
+}
+

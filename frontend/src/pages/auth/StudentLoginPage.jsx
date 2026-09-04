@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock,
@@ -73,46 +73,52 @@ export default function StudentLogin() {
       <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-indigo-200/40 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Top Header Bar */}
-      <header className="relative z-10 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
+      <header className="relative z-10 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md px-3 sm:px-8 py-2.5 sm:py-3.5 flex items-center justify-between shadow-sm">
+        <Link to="/" className="flex items-center gap-2.5 sm:gap-3 group min-w-0">
           <img
             src="/images/Logo/logo.webp"
             alt="Sarvadnya Vidyapeeth Logo"
-            className="w-10 h-10 object-contain rounded-full bg-white p-0.5 shadow-md shadow-purple-500/10 border border-purple-100"
+            className="w-8 h-8 sm:w-10 sm:h-10 object-contain rounded-full bg-white p-0.5 shadow-md shadow-purple-500/10 border border-purple-100 group-hover:scale-105 transition-transform shrink-0"
             onError={(e) => {
               e.target.onerror = null;
               e.target.src = "/sarvadnya_logo.jpg";
             }}
           />
-          <div className="flex flex-col">
-            <span className="text-slate-900 font-extrabold text-sm sm:text-base tracking-wider uppercase font-heading">
+          <div className="flex flex-col min-w-0">
+            <span className="text-slate-900 font-extrabold text-xs sm:text-base tracking-wide uppercase font-heading truncate">
               Sarvadnya Vidyapeeth
             </span>
-            <span className="text-purple-700 text-[10px] sm:text-[11px] font-bold tracking-widest uppercase">
-              Student Portal • Affiliated to AKU, Patna
+            <span className="text-purple-700 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase truncate">
+              Student ERP Portal • Affiliated to AKU
             </span>
           </div>
-        </div>
+        </Link>
 
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 shadow-sm">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 shadow-sm whitespace-nowrap">
             <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse" />
             Student Login Desk
           </span>
+          <Link
+            to="/"
+            className="sm:hidden inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors whitespace-nowrap"
+          >
+            Portal
+          </Link>
         </div>
       </header>
 
       {/* Main Centered Content */}
-      <main className="relative z-10 flex-grow flex items-center justify-center p-4 sm:p-6 lg:p-8">
+      <main className="relative z-10 flex-grow flex items-center justify-center p-3 sm:p-6 lg:p-8">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-3xl border border-purple-100 p-6 sm:p-8 shadow-xl shadow-purple-900/5 relative overflow-hidden"
+          transition={{ duration: 0.3 }}
+          className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-purple-100 p-5 sm:p-8 shadow-xl shadow-purple-900/5 relative overflow-hidden"
         >
-          {/* Header Logo */}
-          <div className="text-center mb-6 pb-4 border-b border-slate-100">
-            <div className="inline-block p-1.5 rounded-full bg-white shadow-md shadow-purple-950/5 border-2 border-purple-200 mb-3">
+          {/* Header Logo & Title */}
+          <div className="text-center mb-5 sm:mb-6 pb-3 sm:pb-4 border-b border-slate-100">
+            <div className="inline-block p-1 rounded-full bg-white shadow-md shadow-purple-950/5 border-2 border-purple-200 mb-2 sm:mb-3">
               <img
                 src="/images/Logo/logo.webp"
                 alt="Sarvadnya Vidyapeeth Logo"
@@ -123,11 +129,11 @@ export default function StudentLogin() {
                 }}
               />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 font-heading tracking-tight">
+            <h1 className="text-xl sm:text-3xl font-black text-slate-900 font-heading tracking-tight">
               Student Login
             </h1>
-            <p className="text-xs text-purple-700 font-bold uppercase tracking-wider mt-1">
-              Sarvadnya Vidyapeeth ERP Portal
+            <p className="text-[11px] sm:text-xs text-slate-500 font-medium mt-1">
+              Enter your Scholar No &amp; Password to access your portal
             </p>
           </div>
 
@@ -181,7 +187,7 @@ export default function StudentLogin() {
 
             {/* Password Input */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between flex-wrap gap-1 mb-1.5">
                 <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                   Password
                 </label>
@@ -216,7 +222,7 @@ export default function StudentLogin() {
             </div>
 
             {/* Options */}
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center justify-between pt-0.5">
               <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-600 select-none">
                 <input
                   type="checkbox"
@@ -229,11 +235,11 @@ export default function StudentLogin() {
             </div>
 
             {/* Submit Button */}
-            <div className="pt-2">
+            <div className="pt-1.5 xs:pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:from-purple-800 hover:to-indigo-800 text-white font-bold text-sm shadow-lg shadow-purple-600/20 border border-purple-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-70"
+                className="w-full py-2.5 xs:py-3 px-4 xs:px-5 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:from-purple-800 hover:to-indigo-800 text-white font-bold text-xs xs:text-sm shadow-lg shadow-purple-600/20 border border-purple-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-70"
               >
                 {loading ? (
                   <>

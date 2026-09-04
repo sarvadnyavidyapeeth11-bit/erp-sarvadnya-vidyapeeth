@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ChevronRight,
   Receipt,
+  ShieldCheck,
 } from "lucide-react";
 import { authenticateStaff } from "../../hooks/authData";
 
@@ -60,49 +61,49 @@ export default function FeeOfficerLoginPage() {
       <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-indigo-200/40 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Top Header Bar */}
-      <header className="relative z-10 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-sm">
-        <Link to="/" className="flex items-center gap-3 group">
+      <header className="relative z-10 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md px-3 sm:px-8 py-2.5 sm:py-3.5 flex items-center justify-between shadow-sm">
+        <Link to="/" className="flex items-center gap-2.5 sm:gap-3 group min-w-0">
           <img
             src="/images/Logo/logo.webp"
             alt="Sarvadnya Vidyapeeth Logo"
-            className="w-10 h-10 object-contain rounded-full bg-white p-0.5 shadow-md shadow-purple-500/10 border border-purple-100 group-hover:scale-105 transition-transform"
+            className="w-8 h-8 sm:w-10 sm:h-10 object-contain rounded-full bg-white p-0.5 shadow-md shadow-purple-500/10 border border-purple-100 group-hover:scale-105 transition-transform shrink-0"
             onError={(e) => {
               e.target.onerror = null;
               e.target.src = "/sarvadnya_logo.jpg";
             }}
           />
-          <div className="flex flex-col">
-            <span className="text-slate-900 font-extrabold text-sm sm:text-base tracking-wider uppercase font-heading">
+          <div className="flex flex-col min-w-0">
+            <span className="text-slate-900 font-extrabold text-xs sm:text-base tracking-wide uppercase font-heading truncate">
               Sarvadnya Vidyapeeth
             </span>
-            <span className="text-purple-700 text-[10px] sm:text-[11px] font-bold tracking-widest uppercase">
-              Fee &amp; Accounts Desk • Affiliated to AKU, Patna
+            <span className="text-purple-700 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase truncate">
+              Fee &amp; Accounts Desk • Affiliated to AKU
             </span>
           </div>
         </Link>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           <Link
             to="/"
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-all shadow-sm"
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors shadow-sm whitespace-nowrap"
           >
-            <span>ERP Portal Gateway</span>
+            <span>Portal Gateway</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         </div>
       </header>
 
       {/* Main Centered Content */}
-      <main className="relative z-10 flex-grow flex items-center justify-center p-4 sm:p-6 lg:p-8">
+      <main className="relative z-10 flex-grow flex items-center justify-center p-3 sm:p-6 lg:p-8">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-3xl border border-purple-100 p-6 sm:p-8 shadow-xl shadow-purple-900/5 relative overflow-hidden"
+          transition={{ duration: 0.3 }}
+          className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-purple-100 p-5 sm:p-8 shadow-xl shadow-purple-900/5 relative overflow-hidden"
         >
-          {/* Header Logo */}
-          <div className="text-center mb-6 pb-4 border-b border-slate-100">
-            <div className="inline-block p-1.5 rounded-full bg-white shadow-md shadow-purple-950/5 border-2 border-purple-200 mb-3">
+          {/* Header Logo & Title */}
+          <div className="text-center mb-5 sm:mb-6 pb-3 sm:pb-4 border-b border-slate-100">
+            <div className="inline-block p-1 rounded-full bg-white shadow-md shadow-purple-950/5 border-2 border-purple-200 mb-2 sm:mb-3">
               <img
                 src="/images/Logo/logo.webp"
                 alt="Sarvadnya Vidyapeeth Logo"
@@ -113,11 +114,11 @@ export default function FeeOfficerLoginPage() {
                 }}
               />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 font-heading tracking-tight">
+            <h1 className="text-xl sm:text-3xl font-black text-slate-900 font-heading tracking-tight">
               Fee Officer Login
             </h1>
-            <p className="text-xs text-purple-700 font-bold uppercase tracking-wider mt-1">
-              Sarvadnya Vidyapeeth ERP Portal
+            <p className="text-[11px] sm:text-xs text-slate-500 font-medium mt-1">
+              Sign in to manage bank challans, student ledgers &amp; cash collection
             </p>
           </div>
 
@@ -152,7 +153,7 @@ export default function FeeOfficerLoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
-                Fee Officer ID / Email
+                Officer Email / Employee ID
               </label>
               <div className="relative">
                 <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -194,11 +195,11 @@ export default function FeeOfficerLoginPage() {
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-1.5 xs:pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:from-purple-800 hover:to-indigo-800 text-white font-bold text-sm shadow-lg shadow-purple-600/20 border border-purple-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-70 cursor-pointer"
+                className="w-full py-2.5 xs:py-3 px-4 xs:px-5 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:from-purple-800 hover:to-indigo-800 text-white font-bold text-xs xs:text-sm shadow-lg shadow-purple-600/20 border border-purple-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-70 cursor-pointer"
               >
                 {loading ? (
                   <>
@@ -207,7 +208,7 @@ export default function FeeOfficerLoginPage() {
                   </>
                 ) : (
                   <>
-                    <span>Sign In to Fee Desk</span>
+                    <span>Sign In to Accounts Desk</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -216,22 +217,22 @@ export default function FeeOfficerLoginPage() {
           </form>
 
           {/* Institutional Badge */}
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-[11px] text-slate-500 font-medium flex items-center justify-center gap-1.5">
-              <Receipt className="w-3.5 h-3.5 text-purple-600" />
-              <span>Offline Bank Challans, Fee Heads &amp; Ledgers Desk</span>
+          <div className="mt-5 xs:mt-6 pt-3 xs:pt-4 border-t border-slate-100 text-center">
+            <p className="text-[10px] xs:text-[11px] text-slate-500 font-medium flex items-center justify-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <span>Accounts Clearance, Ledgers & Fee Concessions</span>
             </p>
           </div>
         </motion.div>
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-slate-200 bg-white/90 backdrop-blur-md py-3.5 px-6 sm:px-12 w-full">
-        <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-2.5 text-[11.5px] text-slate-600">
+      <footer className="relative z-10 border-t border-slate-200 bg-white/90 backdrop-blur-md py-3 px-3 xs:px-6 sm:px-12 w-full">
+        <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] xs:text-[11px] sm:text-[11.5px] text-slate-600">
           <p className="text-center sm:text-left font-medium">
             Copyright {new Date().getFullYear()} <span className="text-slate-900 font-semibold">Sarvadnya Vidyapeeth</span>. All rights reserved.
           </p>
-          <p className="text-center sm:text-right text-[11px] text-slate-500">
+          <p className="text-center sm:text-right text-slate-500">
             Designed &amp; Developed by{" "}
             <a
               href="https://texwebsolution.in"

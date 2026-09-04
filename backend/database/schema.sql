@@ -572,7 +572,7 @@ BEGIN
 END $$;
 
 -- ==============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES - OPEN ACCESS FOR AUTHORIZED DESKS
+-- ROW LEVEL SECURITY (RLS) POLICIES - SECURE DEFAULT FOR PRODUCTION
 -- ==============================================================================
 ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
@@ -594,96 +594,27 @@ ALTER TABLE internal_marks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_approvals ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Enable all read access" ON departments;
-DROP POLICY IF EXISTS "Enable all write access" ON departments;
-DROP POLICY IF EXISTS "Enable all read access" ON courses;
-DROP POLICY IF EXISTS "Enable all write access" ON courses;
-DROP POLICY IF EXISTS "Enable all read access" ON batches;
-DROP POLICY IF EXISTS "Enable all write access" ON batches;
-DROP POLICY IF EXISTS "Enable all read access" ON students;
-DROP POLICY IF EXISTS "Enable all write access" ON students;
-DROP POLICY IF EXISTS "Enable all read access" ON fee_ledger;
-DROP POLICY IF EXISTS "Enable all write access" ON fee_ledger;
-DROP POLICY IF EXISTS "Enable all read access" ON bank_challans;
-DROP POLICY IF EXISTS "Enable all write access" ON bank_challans;
-DROP POLICY IF EXISTS "Enable all read access" ON fee_heads;
-DROP POLICY IF EXISTS "Enable all write access" ON fee_heads;
-DROP POLICY IF EXISTS "Enable all read access" ON scholarship_applications;
-DROP POLICY IF EXISTS "Enable all write access" ON scholarship_applications;
-DROP POLICY IF EXISTS "Enable all read access" ON drcc_applications;
-DROP POLICY IF EXISTS "Enable all write access" ON drcc_applications;
-DROP POLICY IF EXISTS "Enable all read access" ON fee_concessions;
-DROP POLICY IF EXISTS "Enable all write access" ON fee_concessions;
-DROP POLICY IF EXISTS "Enable all read access" ON fee_concession_rules;
-DROP POLICY IF EXISTS "Enable all write access" ON fee_concession_rules;
-DROP POLICY IF EXISTS "Enable all read access" ON fee_refunds;
-DROP POLICY IF EXISTS "Enable all write access" ON fee_refunds;
-DROP POLICY IF EXISTS "Enable all read access" ON student_no_dues;
-DROP POLICY IF EXISTS "Enable all write access" ON student_no_dues;
-DROP POLICY IF EXISTS "Enable all read access" ON faculty_allocations;
-DROP POLICY IF EXISTS "Enable all write access" ON faculty_allocations;
-DROP POLICY IF EXISTS "Enable all read access" ON faculty_leaves;
-DROP POLICY IF EXISTS "Enable all write access" ON faculty_leaves;
-DROP POLICY IF EXISTS "Enable all read access" ON attendance_shortage;
-DROP POLICY IF EXISTS "Enable all write access" ON attendance_shortage;
-DROP POLICY IF EXISTS "Enable all read access" ON internal_marks;
-DROP POLICY IF EXISTS "Enable all write access" ON internal_marks;
-DROP POLICY IF EXISTS "Enable all read access" ON timetable_entries;
-DROP POLICY IF EXISTS "Enable all write access" ON timetable_entries;
-DROP POLICY IF EXISTS "Enable all read access" ON timetable_approvals;
-DROP POLICY IF EXISTS "Enable all write access" ON timetable_approvals;
+DO $$
+DECLARE
+    protected_table TEXT;
+BEGIN
+    FOREACH protected_table IN ARRAY ARRAY[
+        'departments', 'courses', 'batches', 'students', 'fee_ledger',
+        'bank_challans', 'fee_heads', 'scholarship_applications', 'drcc_applications',
+        'fee_concessions', 'fee_concession_rules', 'fee_refunds', 'student_no_dues',
+        'faculty_allocations', 'faculty_leaves', 'attendance_shortage',
+        'internal_marks', 'timetable_entries', 'timetable_approvals'
+    ] LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Enable all read access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "Enable all write access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated read access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated insert access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated update access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated delete access" ON public.%I', protected_table);
 
-CREATE POLICY "Enable all read access" ON departments FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON departments FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON courses FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON courses FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON batches FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON batches FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON students FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON students FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON fee_ledger FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON fee_ledger FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON bank_challans FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON bank_challans FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON fee_heads FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON fee_heads FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON scholarship_applications FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON scholarship_applications FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON drcc_applications FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON drcc_applications FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON fee_concessions FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON fee_concessions FOR ALL USING (true);
-CREATE POLICY "Enable all read access" ON fee_concession_rules FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON fee_concession_rules FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON fee_refunds FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON fee_refunds FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON student_no_dues FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON student_no_dues FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON faculty_allocations FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON faculty_allocations FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON faculty_leaves FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON faculty_leaves FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON attendance_shortage FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON attendance_shortage FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON internal_marks FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON internal_marks FOR ALL USING (true);
-
-CREATE POLICY "Enable all read access" ON timetable_entries FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON timetable_entries FOR ALL USING (true);
-CREATE POLICY "Enable all read access" ON timetable_approvals FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON timetable_approvals FOR ALL USING (true);
+        EXECUTE format('CREATE POLICY "Authenticated read access" ON public.%I FOR SELECT TO authenticated USING (true)', protected_table);
+        EXECUTE format('CREATE POLICY "Authenticated insert access" ON public.%I FOR INSERT TO authenticated WITH CHECK (true)', protected_table);
+        EXECUTE format('CREATE POLICY "Authenticated update access" ON public.%I FOR UPDATE TO authenticated USING (true) WITH CHECK (true)', protected_table);
+        EXECUTE format('CREATE POLICY "Authenticated delete access" ON public.%I FOR DELETE TO authenticated USING (true)', protected_table);
+    END LOOP;
+END $$;

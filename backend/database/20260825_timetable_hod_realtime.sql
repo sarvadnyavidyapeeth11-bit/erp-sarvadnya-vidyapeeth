@@ -58,8 +58,21 @@ DROP POLICY IF EXISTS "Enable all read access" ON timetable_entries;
 DROP POLICY IF EXISTS "Enable all write access" ON timetable_entries;
 DROP POLICY IF EXISTS "Enable all read access" ON timetable_approvals;
 DROP POLICY IF EXISTS "Enable all write access" ON timetable_approvals;
+DROP POLICY IF EXISTS "Authenticated read access" ON timetable_entries;
+DROP POLICY IF EXISTS "Authenticated insert access" ON timetable_entries;
+DROP POLICY IF EXISTS "Authenticated update access" ON timetable_entries;
+DROP POLICY IF EXISTS "Authenticated delete access" ON timetable_entries;
+DROP POLICY IF EXISTS "Authenticated read access" ON timetable_approvals;
+DROP POLICY IF EXISTS "Authenticated insert access" ON timetable_approvals;
+DROP POLICY IF EXISTS "Authenticated update access" ON timetable_approvals;
+DROP POLICY IF EXISTS "Authenticated delete access" ON timetable_approvals;
 
-CREATE POLICY "Enable all read access" ON timetable_entries FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON timetable_entries FOR ALL USING (true);
-CREATE POLICY "Enable all read access" ON timetable_approvals FOR SELECT USING (true);
-CREATE POLICY "Enable all write access" ON timetable_approvals FOR ALL USING (true);
+CREATE POLICY "Authenticated read access" ON timetable_entries FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated insert access" ON timetable_entries FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated update access" ON timetable_entries FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Authenticated delete access" ON timetable_entries FOR DELETE TO authenticated USING (true);
+
+CREATE POLICY "Authenticated read access" ON timetable_approvals FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated insert access" ON timetable_approvals FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated update access" ON timetable_approvals FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Authenticated delete access" ON timetable_approvals FOR DELETE TO authenticated USING (true);

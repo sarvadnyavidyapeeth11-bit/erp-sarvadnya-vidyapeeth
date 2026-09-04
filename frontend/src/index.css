@@ -1,0 +1,172 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 font-sans;
+  }
+
+  /* Global Fix for select dropdowns, options, and optgroups visibility */
+  select,
+  option,
+  optgroup,
+  input,
+  textarea {
+    color: #0f172a !important;
+  }
+
+  select {
+    background-color: #ffffff !important;
+  }
+
+  optgroup {
+    font-weight: 800 !important;
+    color: #581c87 !important;
+    background-color: #f3e8ff !important;
+    padding: 4px 0;
+  }
+
+  option {
+    font-weight: 600 !important;
+    color: #0f172a !important;
+    background-color: #ffffff !important;
+    padding: 6px 8px;
+  }
+
+  /* File Input Chosen Filename High Contrast Fix */
+  input[type="file"] {
+    color: #0f172a !important;
+    font-weight: 700 !important;
+  }
+
+  input[type="file"]::file-selector-button {
+    background-color: #f3e8ff !important;
+    color: #581c87 !important;
+    border: 1px solid #d8b4fe !important;
+    padding: 5px 12px !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    cursor: pointer !important;
+    margin-right: 10px !important;
+    transition: all 0.2s ease-in-out !important;
+  }
+
+  input[type="file"]::file-selector-button:hover {
+    background-color: #e9d5ff !important;
+    color: #3b0764 !important;
+  }
+}
+
+/* Print Styles for Official Student Profile Document */
+@media print {
+  html, body, #root, div, main, section {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide sidebar, topbar, web headers, footers and interactive UI elements during print */
+  aside,
+  header,
+  nav,
+  footer,
+  button:not(.print-allow),
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  @page {
+    margin: 10mm;
+    size: A4 portrait;
+  }
+
+  .page-break-before {
+    page-break-before: always;
+  }
+
+  .page-break-inside-avoid {
+    page-break-inside: avoid;
+  }
+}
+
+/* ── Universal Invisible Scrollbars (Full Scrolling Functionality, Hidden Visuals) ── */
+* {
+  -ms-overflow-style: none !important; /* IE and Edge */
+  scrollbar-width: none !important; /* Firefox */
+}
+
+::-webkit-scrollbar {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
+::-webkit-scrollbar-thumb {
+  display: none !important;
+}
+
+/* ── Remove Number Input Spinners / Stepper Arrows Globally (Pure Manual Typing) ── */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
+}
+
+/* Student portal responsive safety rails */
+.student-portal-shell,
+.student-portal-shell main {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.student-portal-shell :where(.flex, .grid) > * {
+  min-width: 0;
+}
+
+.student-portal-shell h1,
+.student-portal-shell h2,
+.student-portal-shell h3,
+.student-portal-shell h4,
+.student-portal-shell p,
+.student-portal-shell span,
+.student-portal-shell a,
+.student-portal-shell button,
+.student-portal-shell td,
+.student-portal-shell th {
+  overflow-wrap: anywhere;
+}
+
+.student-portal-shell input,
+.student-portal-shell select,
+.student-portal-shell textarea {
+  max-width: 100%;
+}
+
+.student-portal-shell .overflow-x-auto {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  .student-portal-shell table {
+    font-size: 11px;
+  }
+}

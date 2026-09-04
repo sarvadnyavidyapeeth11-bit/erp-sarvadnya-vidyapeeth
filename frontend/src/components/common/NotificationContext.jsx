@@ -18,11 +18,9 @@ export function NotificationProvider({ children }) {
     reloadNotifications();
     window.addEventListener("studentNotificationsUpdated", reloadNotifications);
     window.addEventListener("studentEnrollmentUpdated", reloadNotifications);
-    window.addEventListener("storage", reloadNotifications);
     return () => {
       window.removeEventListener("studentNotificationsUpdated", reloadNotifications);
       window.removeEventListener("studentEnrollmentUpdated", reloadNotifications);
-      window.removeEventListener("storage", reloadNotifications);
     };
   }, [reloadNotifications]);
 

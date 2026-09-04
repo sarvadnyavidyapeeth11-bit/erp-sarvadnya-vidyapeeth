@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { getAcademicSessionForSemester } from "./adminData";
+import { readRealtimeList, readRealtimeValue, writeRealtimeList, writeRealtimeValue } from "../lib/erpRealtimeStore";
 
 // Cross-Tab & Cross-Component Real-Time Sync Channel
 let erpSyncChannel = null;
@@ -33,26 +34,13 @@ export const emitErpSyncEvent = (eventName, detail = {}) => {
 
 
 // Student Portal & Financial Operations Engine
-// Fully Synchronized with Local Storage & Supabase Cloud PostgreSQL DB
+// Fully synchronized with Supabase Cloud PostgreSQL DB and realtime cache.
 // --- Dynamic Logged-in Student Profile (Pure Database / Real Student Record Driven) ---
 
 export const generateReceiptNumber = () => {
-  let counter = 1001;
-  if (typeof window !== "undefined") {
-    try {
-      const storedCount = localStorage.getItem("erp_receipt_counter");
-      if (storedCount && !isNaN(parseInt(storedCount, 10))) {
-        counter = parseInt(storedCount, 10) + 1;
-      } else {
-        const ledger = getStudentDetailedLedger();
-        const existingCount = ledger.filter(e => Number(e.cr ?? e.crAmount ?? e.amount) > 0).length;
-        counter = 1001 + existingCount;
-      }
-      localStorage.setItem("erp_receipt_counter", String(counter));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  const ledger = getStudentDetailedLedger();
+  const existingCount = ledger.filter(e => Number(e.cr ?? e.crAmount ?? e.amount) > 0).length;
+  const counter = 1001 + existingCount;
   const year = new Date().getFullYear().toString().slice(-2);
   return `REC-${year}-${counter}`;
 };
@@ -61,10 +49,8 @@ export const getActiveStudentProfile = () => {
   if (typeof window !== "undefined") {
     try {
       const activeRoll = sessionStorage.getItem("erp_active_student_roll");
-      const stored = localStorage.getItem("erp_admin_verifications");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+      const parsed = readRealtimeList("erp_admin_verifications", []);
+      if (parsed.length > 0) {
           const matched = activeRoll
             ? parsed.find(s => s.scholarNo === activeRoll || s.enrollmentNo === activeRoll || s.loginUsername === activeRoll || s.rollNumber === activeRoll || s.id === activeRoll)
             : null;
@@ -142,7 +128,6 @@ export const getActiveStudentProfile = () => {
               submittedDocuments: matched.documents || []
             };
           }
-        }
       }
     } catch (e) {
       console.error(e);
@@ -193,7 +178,7 @@ export const studentProfile = new Proxy({}, {
 const findStudentRecordByRoll = (roll = "") => {
   if (typeof window === "undefined" || !roll) return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem("erp_admin_verifications") || "[]");
+    const parsed = readRealtimeList("erp_admin_verifications", []);
     if (!Array.isArray(parsed)) return null;
     return parsed.find((student) => (
       student.scholarNo === roll ||
@@ -243,11 +228,47 @@ const normalizeNotificationRoll = (roll = "") => {
   return String(record?.scholarNo || record?.rollNumber || record?.enrollmentNo || record?.id || value);
 };
 
+const toNotificationDbRow = (notification = {}) => ({
+  id: String(notification.id || `NTF-${Date.now()}`),
+  roll_number: String(notification.rollNumber || notification.scholarNo || ""),
+  title: notification.title || "",
+  message: notification.message || "",
+  type: notification.type || "notice",
+  route: notification.route || "/student-dashboard",
+  is_read: Boolean(notification.read),
+  timestamp: notification.timestamp || new Date().toISOString()
+});
+
+const persistNotificationsToSupabase = (notifications = []) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const rows = notifications
+    .filter((notification) => notification?.id && notification?.rollNumber && notification?.title)
+    .map(toNotificationDbRow);
+  if (rows.length === 0) return;
+  supabase
+    .from("student_notifications")
+    .upsert(rows, { onConflict: "id" })
+    .then(({ error }) => {
+      if (error) console.warn("Supabase student notification upsert error:", error);
+    });
+};
+
+const deleteNotificationsFromSupabase = (notificationIds = []) => {
+  if (!isSupabaseConfigured || !supabase || notificationIds.length === 0) return;
+  supabase
+    .from("student_notifications")
+    .delete()
+    .in("id", notificationIds.map(String))
+    .then(({ error }) => {
+      if (error) console.warn("Supabase student notification delete error:", error);
+    });
+};
+
 export const getStudentNotifications = (roll = "") => {
   if (typeof window === "undefined") return [];
   const targetRoll = normalizeNotificationRoll(roll || studentProfile.scholarNo || studentProfile.rollNumber || studentProfile.enrollmentNo || "");
   try {
-    const parsed = JSON.parse(localStorage.getItem(STUDENT_NOTIFICATIONS_KEY) || "[]");
+    const parsed = readRealtimeList(STUDENT_NOTIFICATIONS_KEY, []);
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((notification) => !targetRoll || String(notification.rollNumber || "") === targetRoll)
@@ -261,11 +282,8 @@ export const getStudentNotifications = (roll = "") => {
 export const saveStudentNotifications = (notifications = []) => {
   if (typeof window === "undefined") return [];
   const next = Array.isArray(notifications) ? notifications : [];
-  try {
-    localStorage.setItem(STUDENT_NOTIFICATIONS_KEY, JSON.stringify(next));
-  } catch (e) {
-    console.error(e);
-  }
+  writeRealtimeList(STUDENT_NOTIFICATIONS_KEY, next);
+  persistNotificationsToSupabase(next);
   window.dispatchEvent(new CustomEvent("studentNotificationsUpdated", { detail: { notifications: next } }));
   return next;
 };
@@ -275,16 +293,17 @@ export const saveCurrentStudentNotifications = (notifications = [], roll = "") =
   const targetRoll = normalizeNotificationRoll(roll || studentProfile.scholarNo || studentProfile.rollNumber || studentProfile.enrollmentNo || "");
   if (!targetRoll) return [];
   let all = [];
-  try {
-    all = JSON.parse(localStorage.getItem(STUDENT_NOTIFICATIONS_KEY) || "[]");
-    if (!Array.isArray(all)) all = [];
-  } catch (e) {
-    console.error(e);
-  }
+  all = readRealtimeList(STUDENT_NOTIFICATIONS_KEY, []);
   const scoped = (Array.isArray(notifications) ? notifications : []).map((notification) => ({
     ...notification,
     rollNumber: targetRoll
   }));
+  const scopedIds = new Set(scoped.map((notification) => String(notification.id)));
+  const removedIds = all
+    .filter((notification) => String(notification.rollNumber || "") === targetRoll && !scopedIds.has(String(notification.id)))
+    .map((notification) => notification.id)
+    .filter(Boolean);
+  deleteNotificationsFromSupabase(removedIds);
   return saveStudentNotifications([
     ...scoped,
     ...all.filter((notification) => String(notification.rollNumber || "") !== targetRoll)
@@ -294,12 +313,7 @@ export const saveCurrentStudentNotifications = (notifications = [], roll = "") =
 export const updateStudentNotification = (notificationId, updater) => {
   if (typeof window === "undefined") return [];
   let all = [];
-  try {
-    all = JSON.parse(localStorage.getItem(STUDENT_NOTIFICATIONS_KEY) || "[]");
-    if (!Array.isArray(all)) all = [];
-  } catch (e) {
-    console.error(e);
-  }
+  all = readRealtimeList(STUDENT_NOTIFICATIONS_KEY, []);
   const updated = all.map((notification) => (
     notification.id === notificationId
       ? (typeof updater === "function" ? updater(notification) : { ...notification, ...updater })
@@ -320,12 +334,7 @@ export const addStudentNotification = ({
   const targetRoll = normalizeNotificationRoll(rollNumber || studentProfile.scholarNo || studentProfile.rollNumber || studentProfile.enrollmentNo || "");
   if (!targetRoll || !title) return null;
   let all = [];
-  try {
-    all = JSON.parse(localStorage.getItem(STUDENT_NOTIFICATIONS_KEY) || "[]");
-    if (!Array.isArray(all)) all = [];
-  } catch (e) {
-    console.error(e);
-  }
+  all = readRealtimeList(STUDENT_NOTIFICATIONS_KEY, []);
   const notification = {
     id: id || `NTF-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     rollNumber: targetRoll,
@@ -367,17 +376,10 @@ export const feeDetails = {
   receipts: []
 };
 
-// Auto-load persisted fee data from localStorage
+// Auto-load current live fee cache
 if (typeof window !== "undefined") {
-  const stored = localStorage.getItem("erp_fee_details");
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      Object.assign(feeDetails, parsed);
-    } catch (e) {
-      console.error("Error loading erp_fee_details:", e);
-    }
-  }
+  const stored = readRealtimeValue("erp_fee_details", null);
+  if (stored) Object.assign(feeDetails, stored);
 }
 
 export const getFeeDetails = () => {
@@ -396,7 +398,7 @@ const getLedgerIdentifiers = (roll = "") => {
   let requestedIdentifiers = [requested];
   if (roll && typeof window !== "undefined") {
     try {
-      const students = JSON.parse(localStorage.getItem("erp_students") || "[]");
+      const students = readRealtimeList("erp_admin_verifications", []);
       const matchedStudent = students.find((student) => [
         student.rollNumber,
         student.scholarNo,
@@ -538,7 +540,7 @@ export const getFeeDetailsForStudent = (roll = "") => {
   if (isActiveStudent) {
     Object.assign(feeDetails, details);
     if (typeof window !== "undefined") {
-      localStorage.setItem("erp_fee_details", JSON.stringify(details));
+      writeRealtimeValue("erp_fee_details", details);
     }
   }
   return details;
@@ -554,7 +556,7 @@ export const syncFeeDetails = (updates, roll = "") => {
   Object.assign(feeDetails, next);
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_fee_details", JSON.stringify(next));
+      writeRealtimeValue("erp_fee_details", next);
     } catch (e) {
       console.error("Error saving feeDetails:", e);
     }
@@ -568,8 +570,8 @@ export const getImposedFeeHeads = (department = "All Departments", semester = "A
   let stored = [];
   if (typeof window !== "undefined") {
     try {
-      const data = localStorage.getItem("erp_levied_fee_heads") || localStorage.getItem("fee_heads_directory");
-      if (data) stored = JSON.parse(data);
+      stored = readRealtimeList("erp_levied_fee_heads", []);
+      if (stored.length === 0) stored = readRealtimeList("fee_heads_directory", []);
     } catch (e) {
       console.error("Error reading erp_levied_fee_heads:", e);
     }
@@ -602,13 +604,7 @@ export const getStudentDetailedLedger = () => {
 
   if (typeof window !== "undefined") {
     try {
-      const stored = localStorage.getItem("erp_student_ledger_entries");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
+      return readRealtimeList("erp_student_ledger_entries", defaultEntries);
     } catch (e) {
       console.error(e);
     }
@@ -720,7 +716,7 @@ export const addStudentLedgerEntry = (newEntry) => {
   const updated = [...current, entryWithId];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_student_ledger_entries", JSON.stringify(updated));
+      writeRealtimeList("erp_student_ledger_entries", updated);
     } catch (e) {
       console.error(e);
     }
@@ -800,20 +796,17 @@ export const removeStudentLedgerEntriesByFeeHead = (feeHeadId, feeHeadName = "")
   });
 
   try {
-    localStorage.setItem("erp_student_ledger_entries", JSON.stringify(updated));
+    writeRealtimeList("erp_student_ledger_entries", updated);
   } catch (e) {
     console.error("Error updating erp_student_ledger_entries on delete:", e);
   }
 
   // Also remove from erp_levied_fee_heads if present
   try {
-    const rawHeads = localStorage.getItem("erp_levied_fee_heads");
-    if (rawHeads) {
-      const heads = JSON.parse(rawHeads);
-      if (Array.isArray(heads)) {
-        const filteredHeads = heads.filter(h => h.id !== feeHeadId && h.name !== feeHeadName);
-        localStorage.setItem("erp_levied_fee_heads", JSON.stringify(filteredHeads));
-      }
+    const heads = readRealtimeList("erp_levied_fee_heads", []);
+    if (heads.length > 0) {
+      const filteredHeads = heads.filter(h => h.id !== feeHeadId && h.name !== feeHeadName);
+      writeRealtimeList("erp_levied_fee_heads", filteredHeads);
     }
   } catch (e) {}
 
@@ -849,8 +842,7 @@ export const getStudentNoDues = (roll = "", semester = "", session = "") => {
   const targetKey = getNoDuesKey(targetRoll, targetSemester, targetSession);
   if (typeof window !== "undefined") {
     try {
-      const data = localStorage.getItem("erp_no_dues_status");
-      if (data) stored = JSON.parse(data);
+      stored = readRealtimeValue("erp_no_dues_status", {});
     } catch (e) {
       console.error(e);
     }
@@ -858,7 +850,7 @@ export const getStudentNoDues = (roll = "", semester = "", session = "") => {
 
   if (typeof window !== "undefined") {
     try {
-      const liveRows = JSON.parse(localStorage.getItem("erp_student_no_dues") || "[]");
+      const liveRows = readRealtimeList("erp_student_no_dues", []);
       const live = liveRows.find((row) => (
         String(row.rollNumber || "") === String(targetRoll || "") &&
         String(row.semester || "") === String(targetSemester || "") &&
@@ -910,8 +902,7 @@ export const updateStudentAcademicNoDues = (roll, updates) => {
   let stored = {};
   if (typeof window !== "undefined") {
     try {
-      const data = localStorage.getItem("erp_no_dues_status");
-      if (data) stored = JSON.parse(data);
+      stored = readRealtimeValue("erp_no_dues_status", {});
     } catch (e) {
       console.error(e);
     }
@@ -926,10 +917,10 @@ export const updateStudentAcademicNoDues = (roll, updates) => {
 
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_no_dues_status", JSON.stringify(stored));
-      const liveRows = JSON.parse(localStorage.getItem("erp_student_no_dues") || "[]");
+      writeRealtimeValue("erp_no_dues_status", stored);
+      const liveRows = readRealtimeList("erp_student_no_dues", []);
       const nextRows = [updated, ...liveRows.filter((row) => getNoDuesKey(row.rollNumber, row.semester, row.session) !== key)];
-      localStorage.setItem("erp_student_no_dues", JSON.stringify(nextRows));
+      writeRealtimeList("erp_student_no_dues", nextRows);
     } catch (e) {
       console.error(e);
     }
@@ -1003,15 +994,7 @@ export const submitStudentNoDuesRequest = ({ semester = "", session = "", purpos
 const defaultChallans = [];
 
 export const getBankChallans = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem("erp_bank_challans");
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultChallans;
+  return readRealtimeList("erp_bank_challans", defaultChallans);
 };
 
 export const submitStudentBankChallan = (challanData) => {
@@ -1045,7 +1028,7 @@ export const submitStudentBankChallan = (challanData) => {
   const updated = [newChallan, ...all.filter(c => c.id !== newChallan.id)];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_bank_challans", JSON.stringify(updated));
+      writeRealtimeList("erp_bank_challans", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1098,7 +1081,7 @@ export const processChallanVerification = (challanId, actionStatus, remarks, off
 
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_bank_challans", JSON.stringify(updated));
+      writeRealtimeList("erp_bank_challans", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1171,7 +1154,7 @@ const isProfileBoundAidId = (submittedId = "", profileId = "") => {
 const getStoredStudentProfiles = () => {
   if (typeof window === "undefined") return [];
   try {
-    const parsed = JSON.parse(localStorage.getItem("erp_admin_verifications") || "[]");
+    const parsed = readRealtimeList("erp_admin_verifications", []);
     return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.error(e);
@@ -1236,18 +1219,7 @@ const mergeScholarshipWithStudentProfile = (application) => {
 };
 
 export const getScholarshipApplications = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem("erp_scholarship_applications");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return Array.isArray(parsed) ? parsed.map(mergeScholarshipWithStudentProfile) : [];
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultScholarships;
+  return readRealtimeList("erp_scholarship_applications", defaultScholarships).map(mergeScholarshipWithStudentProfile);
 };
 
 export const getScholarshipExcessForStudent = (roll = "", session = "") => {
@@ -1334,7 +1306,7 @@ export const submitStudentScholarship = (data) => {
   const updated = [newApp, ...all.filter(s => s.id !== newApp.id)];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_scholarship_applications", JSON.stringify(updated));
+      writeRealtimeList("erp_scholarship_applications", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1435,7 +1407,7 @@ export const processScholarshipAction = (id, actionStatus, sanctionedAmt = 0, re
 
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_scholarship_applications", JSON.stringify(updated));
+      writeRealtimeList("erp_scholarship_applications", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1555,18 +1527,7 @@ const upsertDrccApplicationToSupabase = (application) => {
 };
 
 export const getDrccApplications = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem("erp_drcc_applications");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return Array.isArray(parsed) ? parsed.map(mergeScholarshipWithStudentProfile) : [];
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultDrccApplications;
+  return readRealtimeList("erp_drcc_applications", defaultDrccApplications).map(mergeScholarshipWithStudentProfile);
 };
 
 export const submitStudentDrccApplication = (data = {}) => {
@@ -1641,7 +1602,7 @@ export const submitStudentDrccApplication = (data = {}) => {
   const updated = [newApp, ...all.filter((item) => item.id !== newApp.id && String(item.applicationNo || "") !== String(newApp.applicationNo || ""))];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_drcc_applications", JSON.stringify(updated));
+      writeRealtimeList("erp_drcc_applications", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1697,7 +1658,7 @@ export const processDrccAction = (id, actionStatus, adjustAmt = 0, remarks = "",
 
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_drcc_applications", JSON.stringify(updated));
+      writeRealtimeList("erp_drcc_applications", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1754,16 +1715,9 @@ const defaultConcessionRules = [
 ];
 
 export const getConcessionRules = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem("erp_concession_rules");
-      const parsed = stored ? JSON.parse(stored) : [];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      localStorage.setItem("erp_concession_rules", JSON.stringify(defaultConcessionRules));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  const rules = readRealtimeList("erp_concession_rules", []);
+  if (rules.length > 0) return rules;
+  writeRealtimeList("erp_concession_rules", defaultConcessionRules);
   return defaultConcessionRules;
 };
 
@@ -1783,7 +1737,7 @@ export const saveConcessionRule = (data = {}) => {
   const updated = [rule, ...getConcessionRules().filter((item) => item.id !== rule.id)];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_concession_rules", JSON.stringify(updated));
+      writeRealtimeList("erp_concession_rules", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1805,15 +1759,7 @@ export const saveConcessionRule = (data = {}) => {
 };
 
 export const getConcessionRequests = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem("erp_concession_requests");
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultConcessions;
+  return readRealtimeList("erp_concession_requests", defaultConcessions);
 };
 
 export const submitStudentConcession = (data) => {
@@ -1851,7 +1797,7 @@ export const submitStudentConcession = (data) => {
   const updated = [newTicket, ...all.filter(c => c.id !== newTicket.id)];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_concession_requests", JSON.stringify(updated));
+      writeRealtimeList("erp_concession_requests", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1909,7 +1855,7 @@ export const processConcessionAction = (id, actionStatus, sanctionedAmt = 0, rem
 
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_concession_requests", JSON.stringify(updated));
+      writeRealtimeList("erp_concession_requests", updated);
     } catch (e) {
       console.error(e);
     }
@@ -1955,15 +1901,7 @@ export const processConcessionAction = (id, actionStatus, sanctionedAmt = 0, rem
 const defaultRefunds = [];
 
 export const getRefundRequests = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem("erp_refund_requests");
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultRefunds;
+  return readRealtimeList("erp_refund_requests", defaultRefunds);
 };
 
 export const submitStudentRefund = (data) => {
@@ -2000,7 +1938,7 @@ export const submitStudentRefund = (data) => {
   const updated = [newClaim, ...all.filter(r => r.ticketId !== newClaim.ticketId)];
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_refund_requests", JSON.stringify(updated));
+      writeRealtimeList("erp_refund_requests", updated);
     } catch (e) {
       console.error(e);
     }
@@ -2078,7 +2016,7 @@ export const processRefundAction = (ticketId, actionStatus, refundAmt = 0, utrNo
 
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem("erp_refund_requests", JSON.stringify(updated));
+      writeRealtimeList("erp_refund_requests", updated);
     } catch (e) {
       console.error(e);
     }

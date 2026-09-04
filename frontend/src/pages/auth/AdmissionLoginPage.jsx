@@ -24,12 +24,12 @@ export default function AdmissionLoginPage() {
   const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e?.preventDefault();
     setError("");
     setLoading(true);
 
-    const res = authenticateStaff(officerId, password, "admission");
+    const res = await authenticateStaff(officerId, password, "admission");
     if (!res.success) {
       setLoading(false);
       setSuccessMsg("");

@@ -1,12 +1,13 @@
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { createStudentAuthUser } from "../lib/erpBackendApi";
+import { readRealtimeList, writeRealtimeList } from "../lib/erpRealtimeStore";
 
 // ─── Admin & Admissions Portal Data Store ──────────────────────────────────────────
 // Handles Admissions Desk, Student Enrollment, and Comprehensive Profile Verification
-// Synchronized with Local Storage and Supabase Cloud Database.
+// Synchronized with Supabase Cloud Database and in-memory realtime cache.
 
 const VERIFICATIONS_KEY = "erp_admin_verifications";
 const BATCHES_KEY = "erp_master_batches";
-const STUDENT_SEQUENCE_KEY = "erp_student_sequence";
 
 // The UI uses camelCase while the students table uses snake_case columns.
 // Only send fields that exist in the database, so a profile edit persists instead
@@ -92,13 +93,7 @@ const getNextStudentSequence = (students) => {
     const match = String(student.id || "").match(/^APP-\d{4}-(\d+)$/i);
     return match ? Math.max(max, Number(match[1])) : max;
   }, 0);
-  let storedSequence = 0;
-  if (typeof window !== "undefined") {
-    storedSequence = Number(localStorage.getItem(STUDENT_SEQUENCE_KEY)) || 0;
-  }
-  const next = Math.max(highestInRecords, storedSequence) + 1;
-  if (typeof window !== "undefined") localStorage.setItem(STUDENT_SEQUENCE_KEY, String(next));
-  return next;
+  return highestInRecords + 1;
 };
 
 export const generateEnrollmentNumber = (sessionStr, courseCode, sequenceNumber) => {
@@ -169,49 +164,22 @@ export const normalizeStudentEnrollmentNo = (student, index = 0) => {
 };
 
 export const getStudentVerifications = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(VERIFICATIONS_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          let hasMigration = false;
-          const normalizedList = parsed.map((student, idx) => {
-            const normalizedEnroll = normalizeStudentEnrollmentNo(student, idx);
-            const admissionSession = student.admissionSession || student.admission_session || student.admissionYear || student.session || student.academicSession || "";
-            const derivedSession = getAcademicSessionForSemester(admissionSession, student.semester);
-            if (student.enrollmentNo !== normalizedEnroll) {
-              hasMigration = true;
-            }
-            if (derivedSession && student.session !== derivedSession) {
-              hasMigration = true;
-            }
-            return {
-              ...student,
-              enrollmentNo: normalizedEnroll,
-              admissionSession,
-              session: derivedSession || student.session || "",
-              academicSession: derivedSession || student.academicSession || student.session || "",
-              status: normalizeStudentStatus(student.status)
-            };
-          });
-
-          if (hasMigration) {
-            try {
-              localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(normalizedList));
-            } catch (err) {
-              console.error(err);
-            }
-          }
-
-          return normalizedList;
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultVerifications;
+  const rows = readRealtimeList(VERIFICATIONS_KEY, defaultVerifications);
+  const normalizedList = rows.map((student, idx) => {
+    const normalizedEnroll = normalizeStudentEnrollmentNo(student, idx);
+    const admissionSession = student.admissionSession || student.admission_session || student.admissionYear || student.session || student.academicSession || "";
+    const derivedSession = getAcademicSessionForSemester(admissionSession, student.semester);
+    return {
+      ...student,
+      enrollmentNo: normalizedEnroll,
+      admissionSession,
+      session: derivedSession || student.session || "",
+      academicSession: derivedSession || student.academicSession || student.session || "",
+      status: normalizeStudentStatus(student.status)
+    };
+  });
+  writeRealtimeList(VERIFICATIONS_KEY, normalizedList);
+  return normalizedList;
 };
 
 export const getStudentByRoll = (rollNo) => {
@@ -255,13 +223,7 @@ export const getBatchesWithEnrollmentCounts = (batches, students = getStudentVer
 export const synchronizeBatchEnrollmentCounts = (targetBatchName = "", students = getStudentVerifications()) => {
   if (typeof window === "undefined") return [];
 
-  let batches;
-  try {
-    batches = JSON.parse(localStorage.getItem(BATCHES_KEY) || "[]");
-  } catch (e) {
-    console.error(e);
-    return [];
-  }
+  const batches = readRealtimeList(BATCHES_KEY, []);
 
   if (!Array.isArray(batches) || batches.length === 0) return [];
 
@@ -275,7 +237,7 @@ export const synchronizeBatchEnrollmentCounts = (targetBatchName = "", students 
     };
   });
 
-  localStorage.setItem(BATCHES_KEY, JSON.stringify(updated));
+  writeRealtimeList(BATCHES_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     updated
@@ -327,13 +289,7 @@ export const saveStudentEnrollment = (enrollmentData) => {
   };
 
   const updated = [newRecord, ...current];
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     supabase.from("students").upsert({
@@ -371,8 +327,16 @@ export const saveStudentEnrollment = (enrollmentData) => {
       verified_date: newRecord.verifiedDate,
       remarks: newRecord.remarks,
       documents: newRecord.documents || []
-    }).then(({ error }) => {
-      if (error) console.warn("Supabase saveStudentEnrollment error:", error);
+    }).then(async ({ error }) => {
+      if (error) {
+        console.warn("Supabase saveStudentEnrollment error:", error);
+        return;
+      }
+
+      const authResult = await createStudentAuthUser(newRecord);
+      if (!authResult.success) {
+        console.warn("Supabase createStudentAuthUser warning:", authResult.message || authResult);
+      }
     });
   }
 
@@ -400,13 +364,7 @@ export const updateVerificationStatus = (id, newStatus, remarks = "") => {
     return item;
   });
 
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     supabase.from("students").update({
@@ -469,13 +427,7 @@ export const updateStudentProfileFromStudent = (rollNo, updatedFields) => {
   ];
   if (!foundMatch) updatedStudent = finalRows[0];
 
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(finalRows));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, finalRows);
 
   if (isSupabaseConfigured && supabase) {
     const databaseFields = toStudentDatabaseFields({
@@ -494,7 +446,6 @@ export const updateStudentProfileFromStudent = (rollNo, updatedFields) => {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("studentEnrollmentUpdated", { detail: { rollNo, status: "Submitted", student: updatedStudent, action: "profile-submit" } }));
     window.dispatchEvent(new CustomEvent("activeStudentProfileUpdated", { detail: { rollNo, student: updatedStudent } }));
-    window.dispatchEvent(new CustomEvent("storage", { detail: { key: VERIFICATIONS_KEY } }));
   }
   synchronizeBatchEnrollmentCounts("", finalRows);
   return finalRows;
@@ -512,13 +463,7 @@ export const updateStudentMedia = (studentId, photoPreviews) => {
       : item
   ));
 
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     supabase.from("students").update({ photo_previews: photoPreviews })
@@ -530,7 +475,6 @@ export const updateStudentMedia = (studentId, photoPreviews) => {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("studentEnrollmentUpdated", { detail: { studentId, action: "media-update", photoPreviews } }));
-    window.dispatchEvent(new CustomEvent("storage", { detail: { key: VERIFICATIONS_KEY } }));
   }
   return updated;
 };
@@ -552,13 +496,7 @@ export const promoteBatchStudents = (batchName, newSemester, newSession = "") =>
     return item;
   });
 
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     const updateFields = { semester: newSemester };
@@ -587,13 +525,7 @@ export const updateStudentFromAdmin = (studentId, updatedFields) => {
     return item;
   });
 
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     const databaseFields = toStudentDatabaseFields(updatedFields);
@@ -614,13 +546,7 @@ export const deleteStudentFromAdmin = (studentId) => {
   const deletedStudent = current.find(item => item.id === studentId || item.rollNumber === studentId || item.scholarNo === studentId);
   const updated = current.filter(item => item.id !== studentId && item.rollNumber !== studentId && item.scholarNo !== studentId);
 
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(VERIFICATIONS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  writeRealtimeList(VERIFICATIONS_KEY, updated);
 
   if (isSupabaseConfigured && supabase) {
     supabase.from("students").delete().or(`id.eq.${studentId},roll_number.eq.${studentId}`).then(({ error }) => {

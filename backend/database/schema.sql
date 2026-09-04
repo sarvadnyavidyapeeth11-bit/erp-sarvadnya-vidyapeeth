@@ -7,6 +7,82 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
+-- ERP login role mapping for Supabase Auth users.
+CREATE TABLE IF NOT EXISTS erp_user_profiles (
+    id TEXT PRIMARY KEY DEFAULT ('USR-' || substr(uuid_generate_v4()::text, 1, 8)),
+    auth_user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('admin', 'admission', 'fee', 'student', 'hod', 'teacher')),
+    role_name VARCHAR(255),
+    display_name VARCHAR(255) NOT NULL,
+    student_identifier VARCHAR(100),
+    department_code VARCHAR(50),
+    status VARCHAR(50) DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION public.erp_current_role()
+RETURNS TEXT
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT role
+    FROM public.erp_user_profiles
+    WHERE auth_user_id = auth.uid()
+      AND status = 'active'
+    LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION public.erp_current_student_identifier()
+RETURNS TEXT
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT student_identifier
+    FROM public.erp_user_profiles
+    WHERE auth_user_id = auth.uid()
+      AND role = 'student'
+      AND status = 'active'
+    LIMIT 1
+$$;
+
+GRANT EXECUTE ON FUNCTION public.erp_current_role() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.erp_current_student_identifier() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.erp_is_staff()
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COALESCE(public.erp_current_role() IN ('admin', 'admission', 'fee', 'hod', 'teacher'), false)
+$$;
+
+CREATE OR REPLACE FUNCTION public.erp_student_matches(
+    row_roll_number TEXT DEFAULT NULL,
+    row_scholar_no TEXT DEFAULT NULL,
+    row_enrollment_no TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COALESCE(public.erp_current_role() = 'student', false)
+       AND public.erp_current_student_identifier() IS NOT NULL
+       AND public.erp_current_student_identifier() IN (row_roll_number, row_scholar_no, row_enrollment_no)
+$$;
+
+GRANT EXECUTE ON FUNCTION public.erp_is_staff() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.erp_student_matches(TEXT, TEXT, TEXT) TO authenticated;
+
 -- 1. DEPARTMENTS TABLE
 CREATE TABLE IF NOT EXISTS departments (
     id TEXT PRIMARY KEY DEFAULT ('DEP-' || substr(uuid_generate_v4()::text, 1, 8)),
@@ -115,6 +191,23 @@ CREATE INDEX IF NOT EXISTS idx_students_department ON students(department);
 CREATE INDEX IF NOT EXISTS idx_students_enrollment ON students(enrollment_no);
 CREATE INDEX IF NOT EXISTS idx_students_course_sem_status ON students(course_code, semester, status);
 CREATE INDEX IF NOT EXISTS idx_students_name_trgm ON students USING gin (student_name gin_trgm_ops);
+
+-- 4A. STUDENT PORTAL NOTIFICATIONS
+CREATE TABLE IF NOT EXISTS student_notifications (
+    id TEXT PRIMARY KEY DEFAULT ('NTF-' || substr(uuid_generate_v4()::text, 1, 8)),
+    roll_number VARCHAR(100) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT,
+    type VARCHAR(50) DEFAULT 'notice',
+    route TEXT DEFAULT '/student-dashboard',
+    is_read BOOLEAN DEFAULT false,
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_notifications_roll ON student_notifications(roll_number);
+CREATE INDEX IF NOT EXISTS idx_student_notifications_timestamp ON student_notifications(timestamp DESC);
 
 -- 5. FEE FINANCIAL LEDGER TABLE (Double-Entry Debit/Credit with ACID Guarantee)
 CREATE TABLE IF NOT EXISTS fee_ledger (
@@ -550,7 +643,7 @@ DECLARE
     table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'departments', 'courses', 'batches', 'students', 'fee_ledger',
+        'departments', 'courses', 'batches', 'students', 'student_notifications', 'fee_ledger',
         'bank_challans', 'fee_heads', 'scholarship_applications', 'drcc_applications',
         'fee_concessions', 'fee_concession_rules', 'fee_refunds', 'student_no_dues',
         'faculty_allocations', 'faculty_leaves', 'attendance_shortage',
@@ -575,9 +668,11 @@ END $$;
 -- ROW LEVEL SECURITY (RLS) POLICIES - SECURE DEFAULT FOR PRODUCTION
 -- ==============================================================================
 ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE erp_user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bank_challans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_heads ENABLE ROW LEVEL SECURITY;
@@ -594,12 +689,49 @@ ALTER TABLE internal_marks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timetable_approvals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own ERP profile" ON erp_user_profiles;
+DROP POLICY IF EXISTS "Admins can read ERP profiles" ON erp_user_profiles;
+DROP POLICY IF EXISTS "Admins can insert ERP profiles" ON erp_user_profiles;
+DROP POLICY IF EXISTS "Admins can update ERP profiles" ON erp_user_profiles;
+DROP POLICY IF EXISTS "Admins can delete ERP profiles" ON erp_user_profiles;
+
+CREATE POLICY "Users can read own ERP profile"
+ON erp_user_profiles
+FOR SELECT
+TO authenticated
+USING (auth_user_id = auth.uid());
+
+CREATE POLICY "Admins can read ERP profiles"
+ON erp_user_profiles
+FOR SELECT
+TO authenticated
+USING (public.erp_current_role() = 'admin');
+
+CREATE POLICY "Admins can insert ERP profiles"
+ON erp_user_profiles
+FOR INSERT
+TO authenticated
+WITH CHECK (public.erp_current_role() = 'admin');
+
+CREATE POLICY "Admins can update ERP profiles"
+ON erp_user_profiles
+FOR UPDATE
+TO authenticated
+USING (public.erp_current_role() = 'admin')
+WITH CHECK (public.erp_current_role() = 'admin');
+
+CREATE POLICY "Admins can delete ERP profiles"
+ON erp_user_profiles
+FOR DELETE
+TO authenticated
+USING (public.erp_current_role() = 'admin');
+
 DO $$
 DECLARE
     protected_table TEXT;
 BEGIN
     FOREACH protected_table IN ARRAY ARRAY[
-        'departments', 'courses', 'batches', 'students', 'fee_ledger',
+        'departments', 'courses', 'batches', 'students', 'student_notifications', 'fee_ledger',
         'bank_challans', 'fee_heads', 'scholarship_applications', 'drcc_applications',
         'fee_concessions', 'fee_concession_rules', 'fee_refunds', 'student_no_dues',
         'faculty_allocations', 'faculty_leaves', 'attendance_shortage',
@@ -611,10 +743,109 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS "Authenticated insert access" ON public.%I', protected_table);
         EXECUTE format('DROP POLICY IF EXISTS "Authenticated update access" ON public.%I', protected_table);
         EXECUTE format('DROP POLICY IF EXISTS "Authenticated delete access" ON public.%I', protected_table);
-
-        EXECUTE format('CREATE POLICY "Authenticated read access" ON public.%I FOR SELECT TO authenticated USING (true)', protected_table);
-        EXECUTE format('CREATE POLICY "Authenticated insert access" ON public.%I FOR INSERT TO authenticated WITH CHECK (true)', protected_table);
-        EXECUTE format('CREATE POLICY "Authenticated update access" ON public.%I FOR UPDATE TO authenticated USING (true) WITH CHECK (true)', protected_table);
-        EXECUTE format('CREATE POLICY "Authenticated delete access" ON public.%I FOR DELETE TO authenticated USING (true)', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "ERP role read access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "ERP role insert access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "ERP role update access" ON public.%I', protected_table);
+        EXECUTE format('DROP POLICY IF EXISTS "ERP role delete access" ON public.%I', protected_table);
     END LOOP;
 END $$;
+
+CREATE POLICY "ERP role read access" ON departments FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON departments FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role update access" ON departments FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission')) WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role delete access" ON departments FOR DELETE TO authenticated USING (public.erp_current_role() = 'admin');
+
+CREATE POLICY "ERP role read access" ON courses FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON courses FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role update access" ON courses FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission')) WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role delete access" ON courses FOR DELETE TO authenticated USING (public.erp_current_role() = 'admin');
+
+CREATE POLICY "ERP role read access" ON batches FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON batches FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role update access" ON batches FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission')) WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role delete access" ON batches FOR DELETE TO authenticated USING (public.erp_current_role() = 'admin');
+
+CREATE POLICY "ERP role read access" ON students FOR SELECT TO authenticated USING (public.erp_is_staff() OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role insert access" ON students FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'admission'));
+CREATE POLICY "ERP role update access" ON students FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no)) WITH CHECK (public.erp_current_role() IN ('admin', 'admission') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role delete access" ON students FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission'));
+
+CREATE POLICY "ERP role read access" ON student_notifications FOR SELECT TO authenticated USING (public.erp_is_staff() OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON student_notifications FOR INSERT TO authenticated WITH CHECK (public.erp_is_staff() OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role update access" ON student_notifications FOR UPDATE TO authenticated USING (public.erp_is_staff() OR public.erp_student_matches(roll_number, NULL, NULL)) WITH CHECK (public.erp_is_staff() OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role delete access" ON student_notifications FOR DELETE TO authenticated USING (public.erp_is_staff() OR public.erp_student_matches(roll_number, NULL, NULL));
+
+CREATE POLICY "ERP role read access" ON fee_ledger FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON fee_ledger FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role update access" ON fee_ledger FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee')) WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role delete access" ON fee_ledger FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON bank_challans FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON bank_challans FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role update access" ON bank_challans FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee')) WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role delete access" ON bank_challans FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON fee_heads FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON fee_heads FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role update access" ON fee_heads FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee')) WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role delete access" ON fee_heads FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON scholarship_applications FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role insert access" ON scholarship_applications FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role update access" ON scholarship_applications FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no)) WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role delete access" ON scholarship_applications FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON drcc_applications FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role insert access" ON drcc_applications FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role update access" ON drcc_applications FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no)) WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, scholar_no, enrollment_no));
+CREATE POLICY "ERP role delete access" ON drcc_applications FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON fee_concessions FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON fee_concessions FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role update access" ON fee_concessions FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL)) WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role delete access" ON fee_concessions FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON fee_concession_rules FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON fee_concession_rules FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role update access" ON fee_concession_rules FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee')) WITH CHECK (public.erp_current_role() IN ('admin', 'fee'));
+CREATE POLICY "ERP role delete access" ON fee_concession_rules FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON fee_refunds FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON fee_refunds FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role update access" ON fee_refunds FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL)) WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role delete access" ON fee_refunds FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON student_no_dues FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON student_no_dues FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role update access" ON student_no_dues FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL)) WITH CHECK (public.erp_current_role() IN ('admin', 'fee') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role delete access" ON student_no_dues FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'fee'));
+
+CREATE POLICY "ERP role read access" ON faculty_allocations FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON faculty_allocations FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'admission', 'hod'));
+CREATE POLICY "ERP role update access" ON faculty_allocations FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod')) WITH CHECK (public.erp_current_role() IN ('admin', 'admission', 'hod'));
+CREATE POLICY "ERP role delete access" ON faculty_allocations FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod'));
+
+CREATE POLICY "ERP role read access" ON faculty_leaves FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod', 'teacher'));
+CREATE POLICY "ERP role insert access" ON faculty_leaves FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'hod', 'teacher'));
+CREATE POLICY "ERP role update access" ON faculty_leaves FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod', 'teacher')) WITH CHECK (public.erp_current_role() IN ('admin', 'hod', 'teacher'));
+CREATE POLICY "ERP role delete access" ON faculty_leaves FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod'));
+
+CREATE POLICY "ERP role read access" ON attendance_shortage FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod', 'teacher') OR public.erp_student_matches(roll_number, NULL, NULL));
+CREATE POLICY "ERP role insert access" ON attendance_shortage FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'hod', 'teacher'));
+CREATE POLICY "ERP role update access" ON attendance_shortage FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod', 'teacher')) WITH CHECK (public.erp_current_role() IN ('admin', 'hod', 'teacher'));
+CREATE POLICY "ERP role delete access" ON attendance_shortage FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod'));
+
+CREATE POLICY "ERP role read access" ON internal_marks FOR SELECT TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod', 'teacher'));
+CREATE POLICY "ERP role insert access" ON internal_marks FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'hod', 'teacher'));
+CREATE POLICY "ERP role update access" ON internal_marks FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod', 'teacher')) WITH CHECK (public.erp_current_role() IN ('admin', 'hod', 'teacher'));
+CREATE POLICY "ERP role delete access" ON internal_marks FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod'));
+
+CREATE POLICY "ERP role read access" ON timetable_entries FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON timetable_entries FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'admission', 'hod', 'teacher'));
+CREATE POLICY "ERP role update access" ON timetable_entries FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod', 'teacher')) WITH CHECK (public.erp_current_role() IN ('admin', 'admission', 'hod', 'teacher'));
+CREATE POLICY "ERP role delete access" ON timetable_entries FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'admission', 'hod'));
+
+CREATE POLICY "ERP role read access" ON timetable_approvals FOR SELECT TO authenticated USING (true);
+CREATE POLICY "ERP role insert access" ON timetable_approvals FOR INSERT TO authenticated WITH CHECK (public.erp_current_role() IN ('admin', 'hod'));
+CREATE POLICY "ERP role update access" ON timetable_approvals FOR UPDATE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod')) WITH CHECK (public.erp_current_role() IN ('admin', 'hod'));
+CREATE POLICY "ERP role delete access" ON timetable_approvals FOR DELETE TO authenticated USING (public.erp_current_role() IN ('admin', 'hod'));

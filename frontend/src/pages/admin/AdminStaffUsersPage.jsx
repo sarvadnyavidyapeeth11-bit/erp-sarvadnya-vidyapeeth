@@ -25,6 +25,11 @@ import {
   deleteStaffAccount,
   resetStaffDefaults,
 } from "../../hooks/authData";
+import {
+  createStaffAuthUser,
+  deleteStaffAuthUser,
+  updateStaffAuthPassword,
+} from "../../lib/erpBackendApi";
 
 export default function AdminStaffUsersPage() {
   const [accounts, setAccounts] = useState(() => getStaffAccounts());
@@ -37,6 +42,7 @@ export default function AdminStaffUsersPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   // Create User Modal State
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -46,6 +52,7 @@ export default function AdminStaffUsersPage() {
   const [newUserPassword, setNewUserPassword] = useState("");
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
+  const [createSaving, setCreateSaving] = useState(false);
 
   // Reload accounts on update
   useEffect(() => {
@@ -71,17 +78,28 @@ export default function AdminStaffUsersPage() {
     setPasswordModalOpen(true);
   };
 
-  const handlePasswordSubmit = (e) => {
+  const handlePasswordSubmit = async (e) => {
     e.preventDefault();
     setPasswordError("");
     setPasswordSuccess("");
 
-    if (!newPassword || newPassword.length < 4) {
-      setPasswordError("Password must be at least 4 characters long.");
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordError("Password must be at least 8 characters long.");
       return;
     }
     if (newPassword !== confirmPassword) {
       setPasswordError("Passwords do not match. Please re-check.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    const authRes = await updateStaffAuthPassword({
+      email: selectedAccount.email,
+      password: newPassword,
+    });
+    setPasswordSaving(false);
+    if (!authRes.success && !authRes.skipped) {
+      setPasswordError(authRes.message || "Unable to update Supabase Auth password.");
       return;
     }
 
@@ -98,10 +116,28 @@ export default function AdminStaffUsersPage() {
     }, 1200);
   };
 
-  const handleCreateSubmit = (e) => {
+  const handleCreateSubmit = async (e) => {
     e.preventDefault();
     setCreateError("");
     setCreateSuccess("");
+
+    if (!newUserPassword || newUserPassword.length < 8) {
+      setCreateError("Password must be at least 8 characters long.");
+      return;
+    }
+
+    setCreateSaving(true);
+    const authRes = await createStaffAuthUser({
+      name: newUserName,
+      email: newUserEmail,
+      role: newUserRole,
+      password: newUserPassword,
+    });
+    setCreateSaving(false);
+    if (!authRes.success && !authRes.skipped) {
+      setCreateError(authRes.message || "Unable to create staff user in Supabase Auth.");
+      return;
+    }
 
     const res = createStaffAccount({
       name: newUserName,
@@ -126,8 +162,16 @@ export default function AdminStaffUsersPage() {
     }, 1200);
   };
 
-  const handleDeleteAccount = (id, name) => {
+  const handleDeleteAccount = async (id, name) => {
     if (window.confirm(`Are you sure you want to remove staff access for "${name}"?`)) {
+      const target = accounts.find((acc) => acc.id === id);
+      if (target) {
+        const authRes = await deleteStaffAuthUser({ email: target.email });
+        if (!authRes.success && !authRes.skipped) {
+          alert(authRes.message || "Unable to remove staff user from Supabase Auth.");
+          return;
+        }
+      }
       const res = deleteStaffAccount(id);
       if (!res.success) {
         alert(res.message);
@@ -137,14 +181,29 @@ export default function AdminStaffUsersPage() {
     }
   };
 
-  const handleResetDefaults = () => {
+  const handleResetDefaults = async () => {
     if (
       window.confirm(
-        "Are you sure you want to reset all staff logins to system defaults (admin@sarvadnya.erp, admission@sarvadnya.erp, fee@sarvadnya.erp with password 11111112)?"
+        "Are you sure you want to reset all staff logins to system defaults (admin@sarvadnya.erp, admission@sarvadnya.erp, fee@sarvadnya.erp)?"
       )
     ) {
-      resetStaffDefaults();
-      setAccounts(getStaffAccounts());
+      const nextDefaults = resetStaffDefaults();
+      const defaults = getStaffAccounts();
+      for (const account of defaults) {
+        const authRes = await createStaffAuthUser({
+          name: account.name,
+          email: account.email,
+          role: account.role,
+          password: account.password,
+        });
+        if (!authRes.success && !authRes.skipped) {
+          alert(authRes.message || `Unable to reset ${account.email} in Supabase Auth.`);
+          break;
+        }
+      }
+      if (nextDefaults.success) {
+        setAccounts(defaults);
+      }
     }
   };
 
@@ -413,7 +472,7 @@ export default function AdminStaffUsersPage() {
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password (min. 4 characters)"
+                    placeholder="Enter new password (min. 8 characters)"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600"
                   />
                 </div>
@@ -442,9 +501,10 @@ export default function AdminStaffUsersPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold transition-all shadow-md shadow-purple-600/20"
+                    disabled={passwordSaving}
+                    className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold transition-all shadow-md shadow-purple-600/20 disabled:opacity-60"
                   >
-                    Save New Password
+                    {passwordSaving ? "Saving..." : "Save New Password"}
                   </button>
                 </div>
               </form>
@@ -557,9 +617,10 @@ export default function AdminStaffUsersPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold transition-all shadow-md shadow-purple-600/20"
+                    disabled={createSaving}
+                    className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold transition-all shadow-md shadow-purple-600/20 disabled:opacity-60"
                   >
-                    Create Staff Account
+                    {createSaving ? "Creating..." : "Create Staff Account"}
                   </button>
                 </div>
               </form>

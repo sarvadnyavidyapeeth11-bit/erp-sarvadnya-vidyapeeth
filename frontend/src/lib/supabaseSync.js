@@ -1,5 +1,6 @@
 ﻿import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import { feeDetails } from "../hooks/studentPortalData";
+import { readRealtimeList, writeRealtimeList, writeRealtimeValue } from "./erpRealtimeStore";
 
 /**
  * Master Realtime Synchronization Engine for Sarvadnya ERP
@@ -24,20 +25,11 @@ const dispatchDebouncedEvent = (eventName, detail, delayMs = 100) => {
 };
 
 const setCache = (key, value) => {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(key, JSON.stringify(value || []));
-  }
+  writeRealtimeList(key, value || []);
 };
 
 const getCacheList = (key) => {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
+  return readRealtimeList(key, []);
 };
 
 const normalizeStudent = (row) => ({
@@ -316,6 +308,29 @@ const refreshStudentsCache = async () => {
   return students;
 };
 
+const refreshStudentNotificationsCache = async () => {
+  const { data, error } = await supabase
+    .from("student_notifications")
+    .select("*")
+    .order("timestamp", { ascending: false });
+  if (error) {
+    console.warn("Supabase student notifications refresh error:", error);
+    return [];
+  }
+  const notifications = (data || []).map((notification) => ({
+    id: notification.id,
+    rollNumber: notification.roll_number,
+    title: notification.title,
+    message: notification.message,
+    type: notification.type || "notice",
+    route: notification.route || "/student-dashboard",
+    timestamp: notification.timestamp || notification.created_at,
+    read: Boolean(notification.is_read),
+  }));
+  setCache("erp_student_notifications", notifications);
+  return notifications;
+};
+
 const refreshFinancialCache = async () => {
   const [ledger, challans, scholarships, drccApplications, concessions, concessionRules, refunds, feeHeads, noDues] = await Promise.all([
     supabase.from("fee_ledger").select("*").order("created_at", { ascending: false }),
@@ -361,7 +376,7 @@ const refreshFinancialCache = async () => {
     if (typeof window !== "undefined") {
       const liveFeeDetails = buildFeeDetails(rows, students);
       Object.assign(feeDetails, liveFeeDetails);
-      localStorage.setItem("erp_fee_details", JSON.stringify(liveFeeDetails));
+      writeRealtimeValue("erp_fee_details", liveFeeDetails);
     }
   }
   if (!challans.error) setCache("erp_bank_challans", challans.data.map((c) => ({
@@ -533,7 +548,7 @@ const refreshFinancialCache = async () => {
 
 export const hydrateSupabaseCaches = async () => {
   if (!isSupabaseConfigured || !supabase) return;
-  await Promise.all([refreshAcademicCache(), refreshFinancialCache()]);
+  await Promise.all([refreshAcademicCache(), refreshFinancialCache(), refreshStudentNotificationsCache()]);
   dispatchDebouncedEvent("academicDataUpdated", { source: "supabase-hydrate" }, 0);
   dispatchDebouncedEvent("studentEnrollmentUpdated", { source: "supabase-hydrate" }, 0);
   dispatchDebouncedEvent("feeDataUpdated", { source: "supabase-hydrate" }, 0);
@@ -548,6 +563,7 @@ export const hydrateSupabaseCaches = async () => {
   dispatchDebouncedEvent("internalMarksUpdated", { source: "supabase-hydrate" }, 0);
   dispatchDebouncedEvent("noDuesUpdated", { source: "supabase-hydrate" }, 0);
   dispatchDebouncedEvent("timetableUpdated", { source: "supabase-hydrate" }, 0);
+  dispatchDebouncedEvent("studentNotificationsUpdated", { source: "supabase-hydrate" }, 0);
 };
 
 export const initSupabaseRealtimeSync = () => {
@@ -743,10 +759,23 @@ export const initSupabaseRealtimeSync = () => {
     )
     .subscribe();
 
+  const notificationsChannel = supabase
+    .channel("erp_student_notifications_sync")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "student_notifications" },
+      (payload) => {
+        console.log("Realtime: Student notification updated", payload);
+        refreshStudentNotificationsCache().finally(() => dispatchDebouncedEvent("studentNotificationsUpdated", payload));
+      }
+    )
+    .subscribe();
+
   return () => {
     supabase.removeChannel(academicChannel);
     supabase.removeChannel(studentsChannel);
     supabase.removeChannel(feeChannel);
     supabase.removeChannel(hodChannel);
+    supabase.removeChannel(notificationsChannel);
   };
 };

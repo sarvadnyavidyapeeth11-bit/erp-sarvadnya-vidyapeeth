@@ -1,8 +1,9 @@
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { readRealtimeList, readRealtimeValue, writeRealtimeList } from "../lib/erpRealtimeStore";
 
 // ─── Unified Master Academic Data Engine ──────────────────────────────
 // Stores Departments, Courses, Batches, Subjects, and Faculty Allocations
-// Fully persistent with localStorage and synchronized with Supabase Cloud DB.
+// Fully persistent with Supabase Cloud DB and synchronized through the realtime cache.
 
 const DEPARTMENTS_KEY = "erp_master_departments";
 const COURSES_KEY = "erp_master_courses";
@@ -23,14 +24,7 @@ const defaultSubjects = [];
 const normalizeRelation = (value) => String(value || "").trim().toLowerCase();
 
 const readStoredArray = (key) => {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
+  return readRealtimeList(key, []);
 };
 
 const nextMasterId = (items, prefix) => {
@@ -49,7 +43,7 @@ const notifyStudentUpdate = (type, payload) => {
 
 const persistRelationshipChanges = (key, rows, eventType) => {
   if (typeof window === "undefined") return;
-  localStorage.setItem(key, JSON.stringify(rows));
+  writeRealtimeList(key, rows);
   if (key === STUDENTS_KEY) notifyStudentUpdate(eventType, rows);
 };
 
@@ -90,15 +84,7 @@ export const getBatchDependencies = (batch) => {
 };
 
 export const getAttendanceShortage = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(ATTENDANCE_SHORTAGE_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return [];
+  return readStoredArray(ATTENDANCE_SHORTAGE_KEY);
 };
 
 export const markAttendanceWarning = (id) => {
@@ -106,7 +92,7 @@ export const markAttendanceWarning = (id) => {
     row.id === id ? { ...row, warningSent: true } : row
   );
   if (typeof window !== "undefined") {
-    localStorage.setItem(ATTENDANCE_SHORTAGE_KEY, JSON.stringify(updated));
+    writeRealtimeList(ATTENDANCE_SHORTAGE_KEY, updated);
     notifyAcademicUpdate("attendance_warning", { id });
   }
   if (isSupabaseConfigured && supabase) {
@@ -149,15 +135,7 @@ const getDepartmentAcademicYear = (department = "", deptCode = "") => {
 };
 
 export const getDepartments = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(DEPARTMENTS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultDepartments;
+  return readRealtimeList(DEPARTMENTS_KEY, defaultDepartments);
 };
 
 export const saveDepartment = (dept) => {
@@ -177,7 +155,7 @@ export const saveDepartment = (dept) => {
     updated = [...current, targetDept];
   }
   if (typeof window !== "undefined") {
-    localStorage.setItem(DEPARTMENTS_KEY, JSON.stringify(updated));
+    writeRealtimeList(DEPARTMENTS_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("departments").upsert({
@@ -233,7 +211,7 @@ export const deleteDepartment = (id) => {
   if (dependencies.courses || dependencies.batches || dependencies.students) return departments;
   const current = departments.filter(d => d.id !== id);
   if (typeof window !== "undefined") {
-    localStorage.setItem(DEPARTMENTS_KEY, JSON.stringify(current));
+    writeRealtimeList(DEPARTMENTS_KEY, current);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("departments").delete().eq("id", id).then(({ error }) => {
@@ -246,15 +224,7 @@ export const deleteDepartment = (id) => {
 
 // ── Courses CRUD ──
 export const getCourses = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(COURSES_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultCourses;
+  return readRealtimeList(COURSES_KEY, defaultCourses);
 };
 
 export const saveCourse = (course) => {
@@ -274,7 +244,7 @@ export const saveCourse = (course) => {
     updated = [...current, targetCourse];
   }
   if (typeof window !== "undefined") {
-    localStorage.setItem(COURSES_KEY, JSON.stringify(updated));
+    writeRealtimeList(COURSES_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("courses").upsert({
@@ -350,7 +320,7 @@ export const deleteCourse = (id) => {
   if (dependencies.batches || dependencies.students) return courses;
   const current = courses.filter(c => c.id !== id);
   if (typeof window !== "undefined") {
-    localStorage.setItem(COURSES_KEY, JSON.stringify(current));
+    writeRealtimeList(COURSES_KEY, current);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("courses").delete().eq("id", id).then(({ error }) => {
@@ -363,15 +333,7 @@ export const deleteCourse = (id) => {
 
 // ── Batches CRUD ──
 export const getBatches = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(BATCHES_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultBatches;
+  return readRealtimeList(BATCHES_KEY, defaultBatches);
 };
 
 export const saveBatch = (batch) => {
@@ -391,7 +353,7 @@ export const saveBatch = (batch) => {
     updated = [...current, targetBatch];
   }
   if (typeof window !== "undefined") {
-    localStorage.setItem(BATCHES_KEY, JSON.stringify(updated));
+    writeRealtimeList(BATCHES_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("batches").upsert({
@@ -461,7 +423,7 @@ export const deleteBatch = (id) => {
   if (dependencies.students) return batches;
   const current = batches.filter(b => b.id !== id);
   if (typeof window !== "undefined") {
-    localStorage.setItem(BATCHES_KEY, JSON.stringify(current));
+    writeRealtimeList(BATCHES_KEY, current);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("batches").delete().eq("id", id).then(({ error }) => {
@@ -474,15 +436,7 @@ export const deleteBatch = (id) => {
 
 // ── Subjects & Faculty Allocation CRUD ──
 export const getSubjects = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(SUBJECTS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultSubjects;
+  return readRealtimeList(SUBJECTS_KEY, defaultSubjects);
 };
 
 export const saveSubject = (subject) => {
@@ -500,7 +454,7 @@ export const saveSubject = (subject) => {
     updated = [...current, targetSubject];
   }
   if (typeof window !== "undefined") {
-    localStorage.setItem(SUBJECTS_KEY, JSON.stringify(updated));
+    writeRealtimeList(SUBJECTS_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("faculty_allocations").upsert({
@@ -526,7 +480,7 @@ export const saveSubject = (subject) => {
 export const deleteSubject = (id) => {
   const current = getSubjects().filter(s => s.id !== id);
   if (typeof window !== "undefined") {
-    localStorage.setItem(SUBJECTS_KEY, JSON.stringify(current));
+    writeRealtimeList(SUBJECTS_KEY, current);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("faculty_allocations").delete().eq("id", id).then(({ error }) => {
@@ -550,7 +504,7 @@ export const assignFacultyToSubject = (subjectId, facultyId, facultyName) => {
     return s;
   });
   if (typeof window !== "undefined") {
-    localStorage.setItem(SUBJECTS_KEY, JSON.stringify(updated));
+    writeRealtimeList(SUBJECTS_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("faculty_allocations").update({ assigned_faculty_name: facultyName })
@@ -567,15 +521,7 @@ const FACULTY_KEY = "erp_master_faculty";
 const defaultFaculty = [];
 
 export const getFacultyMembers = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(FACULTY_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultFaculty;
+  return readRealtimeList(FACULTY_KEY, defaultFaculty);
 };
 
 export const saveFacultyMember = (faculty) => {
@@ -591,7 +537,7 @@ export const saveFacultyMember = (faculty) => {
     updated = [...current, newFaculty];
   }
   if (typeof window !== "undefined") {
-    localStorage.setItem(FACULTY_KEY, JSON.stringify(updated));
+    writeRealtimeList(FACULTY_KEY, updated);
   }
   notifyAcademicUpdate("faculty", updated);
   return updated;
@@ -602,15 +548,7 @@ const LEAVES_KEY = "erp_faculty_leaves";
 const defaultLeaves = [];
 
 export const getFacultyLeaveRequests = () => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(LEAVES_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  return defaultLeaves;
+  return readRealtimeList(LEAVES_KEY, defaultLeaves);
 };
 
 export const saveFacultyLeaveRequest = (leave) => {
@@ -623,7 +561,7 @@ export const saveFacultyLeaveRequest = (leave) => {
   };
   const updated = [newEntry, ...current];
   if (typeof window !== "undefined") {
-    localStorage.setItem(LEAVES_KEY, JSON.stringify(updated));
+    writeRealtimeList(LEAVES_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("faculty_leaves").upsert({
@@ -650,7 +588,7 @@ export const updateFacultyLeaveStatus = (id, newStatus) => {
   const current = getFacultyLeaveRequests();
   const updated = current.map(l => l.id === id ? { ...l, status: newStatus } : l);
   if (typeof window !== "undefined") {
-    localStorage.setItem(LEAVES_KEY, JSON.stringify(updated));
+    writeRealtimeList(LEAVES_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("faculty_leaves").update({ status: newStatus }).eq("id", id)
@@ -666,19 +604,7 @@ export const updateFacultyLeaveStatus = (id, newStatus) => {
 const MARKS_KEY = "erp_internal_marks_sheets";
 
 export const getInternalMarksList = (courseCode = "") => {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = localStorage.getItem(MARKS_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  return [];
+  return readRealtimeList(MARKS_KEY, []);
 };
 
 export const lockInternalMarksSheet = (id, subjectCode) => {
@@ -689,7 +615,7 @@ export const lockInternalMarksSheet = (id, subjectCode) => {
     lockedOn: new Date().toLocaleDateString("en-GB")
   } : m);
   if (typeof window !== "undefined") {
-    localStorage.setItem(MARKS_KEY, JSON.stringify(updated));
+    writeRealtimeList(MARKS_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("internal_marks").update({
@@ -728,7 +654,7 @@ export const setTimetableApprovalStatus = (approved = true, batch = "") => {
   };
   const updated = [status, ...current.filter((item) => item.id !== status.id)];
   if (typeof window !== "undefined") {
-    localStorage.setItem(TIMETABLE_APPROVALS_KEY, JSON.stringify(updated));
+    writeRealtimeList(TIMETABLE_APPROVALS_KEY, updated);
   }
   if (isSupabaseConfigured && supabase) {
     supabase.from("timetable_approvals").upsert({
@@ -750,9 +676,9 @@ export const setTimetableApprovalStatus = (approved = true, batch = "") => {
 export const getActiveHODProfile = () => {
   if (typeof window !== "undefined") {
     try {
-      const session = localStorage.getItem("erp_active_hod_session");
+      const session = readRealtimeValue("erp_active_hod_session", null);
       if (session) {
-        const parsedSession = JSON.parse(session);
+        const parsedSession = typeof session === "string" ? JSON.parse(session) : session;
         return {
           ...parsedSession,
           academicYear: getDepartmentAcademicYear(parsedSession.department, parsedSession.deptCode) || parsedSession.academicYear || ""

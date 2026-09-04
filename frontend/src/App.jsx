@@ -8,6 +8,7 @@ import AdmissionLoginPage from "./pages/auth/AdmissionLoginPage";
 import FeeOfficerLoginPage from "./pages/auth/FeeOfficerLoginPage";
 import { NotificationProvider } from "./components/common/NotificationContext";
 import { initSupabaseRealtimeSync } from "./lib/supabaseSync";
+import { supabase } from "./lib/supabaseClient";
 
 // Lazy-load portal dashboards to optimize initial bundle size & concurrent performance
 const StudentERPPage = lazy(() => import("./pages/student/StudentERPPage"));
@@ -18,6 +19,13 @@ const FeeOfficerERPPage = lazy(() => import("./pages/officer/FeeOfficerERPPage")
 
 export default function App() {
   useEffect(() => {
+    let unsubscribeRealtime = null;
+    let authSubscription = null;
+    const refreshRealtimeSync = () => {
+      unsubscribeRealtime && unsubscribeRealtime();
+      unsubscribeRealtime = initSupabaseRealtimeSync();
+    };
+
     if (typeof window !== "undefined") {
       // Auto-flush legacy mock keys from browser storage
       if (!localStorage.getItem("erp_v5_clean_slate")) {
@@ -49,14 +57,19 @@ export default function App() {
         }
       };
       window.addEventListener("wheel", handleWheel, { passive: true });
-      const unsubscribe = initSupabaseRealtimeSync();
+      refreshRealtimeSync();
+      authSubscription = supabase?.auth?.onAuthStateChange?.(() => {
+        refreshRealtimeSync();
+      })?.data?.subscription;
+
       return () => {
         window.removeEventListener("wheel", handleWheel);
-        unsubscribe && unsubscribe();
+        authSubscription?.unsubscribe?.();
+        unsubscribeRealtime && unsubscribeRealtime();
       };
     }
-    const unsubscribe = initSupabaseRealtimeSync();
-    return () => unsubscribe && unsubscribe();
+    refreshRealtimeSync();
+    return () => unsubscribeRealtime && unsubscribeRealtime();
   }, []);
   return (
     <NotificationProvider>
